@@ -27,7 +27,7 @@ function session(s,path,active=false){
  });
 }
 function validateBackup(d){
- assert(isObj(d),'backup');assert(d.schemaVersion===2||d.schemaVersion===3,'schemaVersion');
+ assert(isObj(d),'backup');assert(d.schemaVersion===2||d.schemaVersion===3||d.schemaVersion===4,'schemaVersion');
  const t=d.training;assert(isObj(t)&&Array.isArray(t.sessions)&&isObj(t.settings),'training.sessions/settings');str(t.settings.unit,'training.settings.unit');assert(t.active===null||isObj(t.active),'training.active');
  t.sessions.forEach((s,i)=>session(s,'training.sessions['+i+']'));if(t.active)session(t.active,'training.active',true);
  const n=d.nutrition;assert(isObj(n)&&Array.isArray(n.meals)&&Array.isArray(n.savedMeals),'nutrition.meals/savedMeals');
@@ -46,25 +46,10 @@ function validateBackup(d){
  if(d.settings.proteinWindows!==undefined){assert(Array.isArray(d.settings.proteinWindows)&&d.settings.proteinWindows.length===4,'proteinWindows');d.settings.proteinWindows.forEach(w=>{str(w.label,'window.label');number(w.grams,'window.grams');});}
  if(d.milestones!==undefined){assert(isObj(d.milestones),'milestones');for(const k of ['usedSolver','usedAIParse'])if(d.milestones[k]!==undefined)assert(typeof d.milestones[k]==='boolean','milestones.'+k);}
  if(d.mobility!==undefined){assert(isObj(d.mobility)&&Array.isArray(d.mobility.records)&&Array.isArray(d.mobility.tests),'mobility');d.mobility.records.forEach(r=>{date(r.date,'mobility.date');assert(isObj(r.completed),'mobility.completed');Object.values(r.completed).forEach(v=>assert(typeof v==='boolean','mobility.completed value'));if(r.segments!==undefined){assert(isObj(r.segments),'mobility.segments');Object.values(r.segments).forEach(v=>number(v,'mobility.segment progress'));}});d.mobility.tests.forEach(t=>{date(t.date,'mobility.test.date');str(t.testId,'mobility.test.id');str(t.unit,'mobility.test.unit');str(t.notes,'mobility.test.notes');for(const k of ['left','right'])if(t[k]!==null)number(t[k],'mobility.test.'+k);});}
+ if(root.NutritionCore)root.NutritionCore.validateStorage(d);
  return d;
 }
 function validSetValue(key,value){if(value==='')return true;const n=Number(value);return String(value).trim()!==''&&Number.isFinite(n)&&n>=0&&(key!=='rir'||(n<=5&&Number.isInteger(n)));}
-function macroError(t,r){return macroKeys.reduce((sum,k)=>{const target=Math.max(0,r[k]);const delta=(t[k]-target)/Math.max({calories:200,protein:20,carbs:25,fat:10}[k],target);return sum+({calories:2,protein:3,carbs:1,fat:1.5}[k])*delta*delta*(delta>0?2.5:1);},0);}
-const giRank={good:0,unknown:1,mixed:2,bad:3};
-function scoreMeal(mode,c,r){
- const fit=macroError(c.totals,r), t=c.totals;
- const excess=Math.max(0,t.calories-Math.max(0,r.calories))/200+Math.max(0,t.carbs-Math.max(0,r.carbs))/30+Math.max(0,t.fat-Math.max(0,r.fat))/10;
- const gi=c.items.reduce((sum,it)=>sum+(giRank[it.food.giTolerance]??1),0)/c.items.length;
- switch(mode){
- case 'Cheapest':return Number.isFinite(c.cost)?c.cost+fit*20:Infinity;
- case 'Highest Protein':return -Math.min(t.protein,Math.max(0,r.protein)+20)*4+excess*100+fit*3;
- case 'Low Effort':return fit*2+c.items.length*3+c.items.reduce((sum,it)=>sum+(Number.isFinite(it.food.prepSteps)?it.food.prepSteps:1),0)*2-(c.savedMeal?3:0);
- case 'Pre Workout':return fit*.3+excess*30+t.fat*2-t.carbs*.3+Math.abs(t.protein-Math.min(30,Math.max(0,r.protein)))*.4+gi*6;
- case 'Post Workout':return fit*.5+excess*30+t.fat*1.5-Math.min(t.protein,Math.max(0,r.protein))*.9-t.carbs*.15;
- case 'GI Friendly':return gi*100+fit;
- default:return fit;
- }
-}
 function blockForWeek(w){return w===9||w===14?'Deload':w<=4?'Accumulation':w<=8?'Intensification':w<=13?'Peak Volume':'Consolidate';}
 function prescribedSets(ex,w){return [9,14].includes(w)?(ex.deloadSets??Math.max(1,Math.ceil(ex.sets/2))):ex.sets;}
 function rampSets(ex,load){
@@ -79,5 +64,5 @@ function rampSets(ex,load){
  if(cue.includes('empty sled')) rows.unshift({load:0,reps:10,type:'empty sled'});return rows;
 }
 function asymmetry(left,right){return Number.isFinite(left)&&Number.isFinite(right)&&Math.max(left,right)>0?Math.abs(left-right)/Math.max(left,right)*100:0;}
-const api={validateBackup,validSetValue,scoreMeal,macroError,blockForWeek,prescribedSets,rampSets,asymmetry};root.SculptCore=api;if(typeof module!=='undefined')module.exports=api;
+const api={validateBackup,validSetValue,blockForWeek,prescribedSets,rampSets,asymmetry};root.SculptCore=api;if(typeof module!=='undefined')module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

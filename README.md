@@ -1,34 +1,54 @@
-# Sculpt 3
+# Sculpt 4 — AI-first nutrition
 
-A vanilla static PWA with the existing Vercel `/api/nutrition-parse` endpoint. No application build or runtime package installation is required. Deploy the entire working directory's app files, including the JavaScript modules, CSS, icons, manifest and `program-source.md`.
+The completed vanilla training PWA is retained. Eat and Plan now call one Gemini serverless endpoint; training, mobility, progress, history, calculations and themes stay local. No frontend build step is required.
 
-Use a local HTTP server to preview, for example `python3 -m http.server 8765`. Service workers need localhost or HTTPS. The nutrition parser needs the existing server-side configuration; its key is never sent to the client. Manual nutrition, training, foods, history and mobility work offline after the shell is installed.
+## Run and deploy
 
-## Tests
+Serve the directory on localhost for the static PWA, or deploy the project to Vercel with its `/api` directory. Install dependencies with `npm ci`; Vercel installs the server-only `@google/genai` package. The Google SDK is not imported by the browser or included in the offline shell.
 
-Optional development dependencies only:
+Configure `GEMINI_API_KEY` **only in the server/Vercel environment**, then redeploy. Do not paste a key into an HTML/JavaScript file, a client setting, a backup or a terminal command argument. The old OpenAI key is no longer used.
+
+`lib/nutrition-service.cjs` contains the single model constant. The requested model is `gemini-3.8-flash`; there is no silent model fallback. The installed official SDK is pinned to 1.19.0 because its package was available in this sandbox's cache; its local types support `generateContent`, `responseJsonSchema`, and `abortSignal`. A newer SDK could not be downloaded here because registry DNS is restricted.
+
+Routes:
+
+- `POST /api/nutrition-ai` accepts `{action,input,mode,context}`.
+- `/api/nutrition-parse` forwards current requests; old `{text}` requests get an explicit upgrade/reload message.
+
+Supported actions: `parseMeal`, `generateDailyPlan`, `solveNextMeal`, `generateProteinPacing`, `suggestSubstitution`, `analyzeDay`, `generateBudgetPlan`.
+
+## Use
+
+In Eat, type English or Roman Urdu, analyze, inspect estimated items/assumptions, and log once. Adjust quantities or use Less/More. Optional nutrition corrections are remembered locally; exact packaged values can be marked as your supplied label. Plan uses the remaining day and real profile/workout context, not a food database. Generated meals can be logged, adjusted or swapped directly.
+
+In Settings, complete Nutrition Profile. New Progress weights are picked up automatically. Existing calorie/macronutrient targets migrate as **Custom** and remain unchanged. Choose **Auto** explicitly to use Mifflin–St Jeor, configurable activity and goal adjustment. Protein uses body weight, usually 1.6 g/kg (1.8 for non-economical fat loss), with a configurable 1.6–2.0 rule or manual override. Auto overrides stay pinned when weight changes.
+
+Budget preferences are economical/moderate/flexible with optional PKR budgets. AI costs are optional estimates, never verified live market prices. No price or serving library maintenance is needed.
+
+Offline, training/mobility/progress and previous nutrition remain available; drafts survive navigation/reload and AI actions explain the internet requirement. History can be edited/duplicated without AI. Gemini estimates require internet.
+
+## Automated verification
 
 ```sh
-npm install
 npm test
 ```
 
-The suites use a DOM harness and mocked fetch/cache implementations. They do not replace real Safari, viewport, installation, audio, or background-lock testing. See `IMPLEMENTATION_REPORT.md` and `verification/test-results.txt` for the recorded checks and limits.
+The suites include actual client → handler → mocked Google SDK → validated response → client logging, empty saved databases, profile/target math, pacing/time changes, cache behavior, corrections, import rollback and completed-training regressions. Mocks do **not** prove provider connectivity or real Gemini estimates.
 
-## Program source
+## Required live smoke test
 
-`program-source.md` is a copy of the supplied Markdown. Regenerate the structured program with:
+In the configured server environment:
 
 ```sh
-python3 scripts/build-program.py
+npm run test:live
 ```
 
-The generator prints the actual session and weekly working-set totals. Combined lateral flexion and rotation are separate linked exercise rows; cervical posture holds are separate from hard sets. Deload rounding distributes odd sets within each session and retains every exercise.
+Or point `SCULPT_SMOKE_URL` to the deployed HTTPS `/api/nutrition-ai` endpoint, then run the same command. That URL needs no client API key. The script sends all four requested examples and validates item-level nutrition with the same schema. It never prints credentials. Without a configured server key or deployment URL it exits with code 2 and explicitly reports **LIVE GEMINI NOT TESTED**.
 
-Keep `legacy-ppl` stable. Bump the program ID/version if exercise prescriptions change in a future release. Bump the shell cache name in `service-worker.js` when shipping future application changes.
+See `NUTRITION_AI_REPORT.md` and `verification/nutrition-tests.txt`. Real Safari visuals, installed updates, audio/background behavior and live Gemini still need verification where noted.
 
-## Data
+## Data and source
 
-Existing v2 storage keys remain in use. Program selection, block start and theme are additive settings; mobility uses `sculpt.v3.mobility`. Original v1/legacy keys remain. `sculpt.v3.preMigration` holds the initial program migration snapshot. Validated imports use `sculpt.v2.rollback` plus an interrupted-write recovery journal. Export a JSON backup from Settings for portable recovery; browser storage belongs to that origin/device.
+Existing v2 keys, historical meals, saved-food/saved-meal records, prices, GI labels and completed training data remain. New nutrition profile/mode/overrides are additive settings. Local AI cache, drafts and corrections live inside nutrition storage. Portable backup schema is 4, with legacy v1/v2/v3 restore support and validation before commit. `sculpt.v4.preNutritionAI` is the first nutrition migration snapshot. Existing migration/import snapshots and recovery journal behavior remain.
 
-The source ZIP, sibling source documents and `sculpt-ppl-app.pre-v2` have not been edited. `checkpoints/pre-upgrade` contains the four original application files saved before this implementation.
+The immutable sibling rollback copy has not been touched. `checkpoints/pre-ai-nutrition` preserves the working app before this task. Training program/source data have not changed. `program-source.md` remains the offline source; `python3 scripts/build-program.py` regenerates its structured training data if needed. Bump the shell cache name for future deployments.

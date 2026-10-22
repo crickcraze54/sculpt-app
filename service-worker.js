@@ -1,6 +1,6 @@
 /* Network-first document; cache only this version's known, same-origin shell. */
-const CACHE='sculpt-v3-20261022-1';
-const ASSETS=['./','./index.html','./core.js','./app.js','./program-data.js','./storage.js','./upgrade.js','./theme.css','./program-source.md','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
+const CACHE='sculpt-v4-ai-nutrition-20261022-1';
+const ASSETS=['./','./index.html','./core.js','./nutrition-core.js','./nutrition.js','./nutrition.css','./app.js','./program-data.js','./storage.js','./upgrade.js','./theme.css','./program-source.md','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('sculpt-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{

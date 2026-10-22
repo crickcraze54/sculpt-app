@@ -1,0 +1,14 @@
+/* Nutrition-specific components reuse the completed Sculpt design tokens. */
+.page-title{margin-top:0;align-items:center}.page-title h2{font-size:27px}.page-title span{max-width:60%;text-align:right}
+.meal-composer textarea,#askSculpt{min-height:130px;line-height:1.6;margin:10px 0 12px;resize:vertical}.meal-composer .eyebrow{font-size:13px;text-transform:none;letter-spacing:0}
+.center{text-align:center}.nutrition-remaining h2{font-size:34px;margin-top:5px}.nutrition-remaining h2 small{font-size:16px;font-weight:500;color:var(--text-muted)}
+.setup-card{margin:14px 0}.setup-card p{margin:6px 0 10px}.ai-feedback{margin:12px 0;overflow-wrap:anywhere}
+.strategy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.strategy-grid button{min-height:48px;font-size:13px;white-space:normal}
+.meal-total{font-size:23px;font-weight:750;letter-spacing:-.025em}.meal-total span{display:block;font-size:13px;color:var(--text-muted);font-weight:500;letter-spacing:0;margin-top:4px}
+.estimate-item{padding:12px 0;border-top:1px solid var(--border);font-size:14px}.estimate-item p{margin:4px 0 0}.estimate-adjust{padding:12px 0;border-top:1px solid var(--border)}
+.protein-windows{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:12px 0}.protein-windows>div{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-raised)}.protein-windows strong{display:block;font-size:22px;margin-top:5px}
+.nutrition-target-estimate{display:grid;gap:9px;margin:16px 0;padding:12px;border:1px solid var(--border);border-radius:12px}.nutrition-target-estimate>div{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px}.nutrition-target-estimate span{color:var(--text-muted)}
+.tool-grid{display:grid;gap:8px;margin:10px 0}.ai-summary{padding:0 4px}.planned-meal details{margin-bottom:12px}.planned-meal .row{margin-top:12px}.planned-meal .row button{flex-basis:90px}
+button:disabled{opacity:.6;cursor:default}.estimate-adjust details label{font-size:12px}#autoTargetsFields[hidden],#customTargetsFields[hidden]{display:none}
+@media(min-width:700px){.strategy-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.tool-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:430px){.page-title span{font-size:11px}.nutrition-target-estimate strong{max-width:55%;text-align:right}.protein-windows{grid-template-columns:repeat(auto-fit,minmax(100px,1fr))}}

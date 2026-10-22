@@ -26,7 +26,8 @@ function normalizeImported(data){
  next.settings.theme=next.settings.theme||'system';
  next.settings.activeProgram=next.settings.activeProgram||SCULPT_PROGRAM.id;
  next.settings.blockStartedOn=next.settings.blockStartedOn||localDateStr();
- next.schemaVersion=3;
+ NutritionCore.migrateState(next);
+ next.schemaVersion=4;
  SculptCore.validateBackup(next);return next;
 }
 function tagLegacySessions(t){
@@ -61,7 +62,7 @@ function importPayload(data,{keepRollback=true}={}){
 }
 function importAll(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{importPayload(JSON.parse(reader.result));toast('Backup imported');}catch(e){alert('Import rejected: '+e.message);}};reader.onerror=()=>alert('Could not read backup file');reader.readAsText(file);}
 function exportAll(){
- const data={schemaVersion:3,exportedAt:new Date().toISOString(),...snapshotForRollback()};
+ const data={schemaVersion:4,exportedAt:new Date().toISOString(),...snapshotForRollback()};
  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`sculpt-backup-${localDateStr()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function restoreRollback(){const raw=localStorage.getItem('sculpt.v2.rollback');if(!raw){toast('No pre-import snapshot available');return;}try{importPayload({schemaVersion:3,...JSON.parse(raw)},{keepRollback:false});toast('Snapshot restored');}catch(e){alert('Snapshot rejected: '+e.message);}}

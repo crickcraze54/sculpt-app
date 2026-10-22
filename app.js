@@ -163,7 +163,7 @@ function seedFoods(){
 const settingsExistedBefore = localStorage.getItem(NS.settings)!=null;
 let training = loadNS(NS.training, defaultTraining);
 let nutrition = loadNS(NS.nutrition, defaultNutrition);
-let foods = loadNS(NS.foods, seedFoods);
+let foods = loadNS(NS.foods, ()=>({foods:[]}));
 let body = loadNS(NS.body, defaultBody);
 let settings = loadNS(NS.settings, defaultSettings);
 if(!Array.isArray(settings.proteinWindows) || settings.proteinWindows.length!==4){
@@ -365,49 +365,10 @@ document.addEventListener('pointerdown',unlockAudio);
 /* =========================================================================
    FOODS module — deterministic saved-food store
    ========================================================================= */
-function findFood(id){ return foods.foods.find(f=>f.id===id) || null; }
-function isWeightUnit(u){ return ['g','kg','oz','lb'].includes(u); }
-function isVolumeUnit(u){ return ['ml','l'].includes(u); }
-function toGrams(qty,unit){
-  switch(unit){ case 'g': return qty; case 'kg': return qty*1000; case 'oz': return qty*28.3495; case 'lb': return qty*453.592; default: return null; }
-}
-function toMl(qty,unit){ switch(unit){ case 'ml': return qty; case 'l': return qty*1000; default: return null; } }
 
 // Returns scale factor (qty relative to the food's basis), or null if the
 // requested unit is not compatible with the food's basis unit (in which
 // case the caller must fall back to manual entry — we never guess).
-function foodScaleFactor(food, qty, unit){
-  if(!food || !Number.isFinite(qty) || qty<=0) return null;
-  if(unit === food.basisUnit) return qty/food.basisQty;
-  if(isWeightUnit(unit) && isWeightUnit(food.basisUnit)){
-    const g = toGrams(qty,unit), bg = toGrams(food.basisQty, food.basisUnit);
-    if(g!=null && bg) return g/bg;
-  }
-  if(isVolumeUnit(unit) && isVolumeUnit(food.basisUnit)){
-    const ml = toMl(qty,unit), bml = toMl(food.basisQty, food.basisUnit);
-    if(ml!=null && bml) return ml/bml;
-  }
-  return null;
-}
-function scaledMacros(food, qty, unit){
-  const f = foodScaleFactor(food, qty, unit);
-  if(f==null) return null;
-  return {
-    calories: Math.round(food.calories*f),
-    protein: round1(food.protein*f),
-    carbs: round1(food.carbs*f),
-    fat: round1(food.fat*f)
-  };
-}
-function upsertFood(f){
-  const i = foods.foods.findIndex(x=>x.id===f.id);
-  if(i>=0) foods.foods[i]=f; else foods.foods.push(f);
-  saveNS(NS.foods, foods);
-}
-function deleteFood(id){
-  foods.foods = foods.foods.filter(f=>f.id!==id);
-  saveNS(NS.foods, foods);
-}
 
 /* =========================================================================
    EAT module — nutrition dashboard, logging, history
@@ -428,7 +389,7 @@ function chooseEatDate(value){
 }
 function shiftEatDate(delta){const d=new Date(eatDate+'T12:00:00');d.setDate(d.getDate()+delta);chooseEatDate(localDateStr(d));}
 function mealDestination(){checkLocalDay();return historicalLogging?eatDate:localDateStr();}
-let pendingParse = null; // { rawText, items:[{name,quantity,unit,matchedFoodId|null}] }
+
 
 function mealsForDate(d){ return nutrition.meals.filter(m=>m.date===d); }
 function sumMacros(meals){
@@ -456,24 +417,6 @@ function copyMealToToday(id){
   toast('Copied to today');
 }
 
-function renderEat(){
-  checkLocalDay();
-  const el = document.getElementById('eatScreen');
-  let html = `<div class="subnav">
-    <button data-esub="dashboard" class="${eatSubview==='dashboard'?'active':''}">Dashboard</button>
-    <button data-esub="log" class="${eatSubview==='log'?'active':''}">Log meal</button>
-    <button data-esub="history" class="${eatSubview==='history'?'active':''}">History</button>
-  </div>`;
-  html+=`<div class="date-nav"><button class="icon-btn" aria-label="Previous day" onclick="shiftEatDate(-1)">‹</button><label class="date-chip">Viewing <input type="date" aria-label="Nutrition date" value="${esc(eatDate)}" onchange="chooseEatDate(this.value)"></label><button class="icon-btn" aria-label="Next day" onclick="shiftEatDate(1)">›</button><button class="icon-btn" onclick="chooseEatDate(localDateStr())">Today</button></div>`;
-  if(eatDate!==localDateStr()&&eatSubview==='log')html+=`<div class="notice">Viewing ${esc(eatDate)}. New meals default to today.<label style="display:block;margin-top:8px"><input type="checkbox" ${historicalLogging?'checked':''} onchange="historicalLogging=this.checked"> Intentionally log to ${esc(eatDate)}</label></div>`;
-  if(eatSubview==='dashboard') html += eatDashboardHtml();
-  else if(eatSubview==='log') html += eatLogHtml();
-  else html += eatHistoryHtml();
-  el.innerHTML = html;
-  el.querySelectorAll('[data-esub]').forEach(b=>b.addEventListener('click',()=>{ eatSubview=b.dataset.esub; renderEat(); }));
-  wireEatLogForm();
-}
-
 function macroLine(label, eaten, target, color){
   const remaining = target - eaten;
   const over = remaining < 0;
@@ -492,502 +435,20 @@ function calorieRing(eaten,target){
  return `<div class="ring-wrap"><div class="calorie-dial ${over?'over':''}" role="img" aria-label="${Math.round(eaten)} of ${Math.round(target)} calories" style="--ring-progress:${pct}%"><div class="calorie-center"><div class="ring-value">${over?'+'+Math.abs(remaining):remaining}</div><div class="ring-label">${over?'kcal over':'kcal left'}</div></div></div></div>`;
 }
 
-function eatDashboardHtml(){
-  const meals = mealsForDate(eatDate);
-  const eaten = sumMacros(meals);
-  let html = `<span class="eyebrow">${esc(eatDate)}</span>
-  <div class="section-title" style="margin-top:0"><h2>${eatDate===localDateStr()?"Today's nutrition":'Nutrition'}</h2></div>
-  <div class="card" style="padding:16px">
-    ${calorieRing(eaten.calories, settings.calorieTarget)}
-    ${macroLine('Protein', eaten.protein, settings.proteinTarget, 'var(--protein)')}
-    ${macroLine('Carbs', eaten.carbs, settings.carbTarget, 'var(--carbs)')}
-    ${macroLine('Fat', eaten.fat, settings.fatTarget, 'var(--fat)')}
-  </div>`;
-  if(!meals.length){
-    html += `<div class="notice info" style="margin-top:14px">No meals logged for ${esc(eatDate)} yet. Use Log meal to add one.</div>`;
-  } else {
-    html += `<div class="section-title"><h2>Logged today</h2></div>`;
-    meals.slice().sort((a,b)=>a.ts-b.ts).forEach(m=>{
-      html += `<div class="card food-row" style="padding:12px 14px"><div><div class="fname">${esc(m.name)}</div><div class="fmeta">${esc(m.time||'')} · ${Math.round(m.calories)} kcal · ${round1(m.protein)}P / ${round1(m.carbs)}C / ${round1(m.fat)}F</div></div></div>`;
-    });
-  }
-  return html;
-}
-
-function eatLogHtml(){
-  return `<div class="card settings-card">
-    <h3>Add a meal</h3>
-    <div class="field"><label>Mode</label>
-      <select id="mealMode" class="detail-input">
-        <option value="saved">Saved Food</option>
-        <option value="savedMeal">Saved Meal</option>
-        <option value="parse">Natural Language Parse</option>
-        <option value="manual">Manual Nutrition Entry</option>
-      </select>
-    </div>
-    <div id="mealModeBody"></div>
-  </div>`;
-}
-
-function wireEatLogForm(){
-  const modeSel = document.getElementById('mealMode');
-  if(!modeSel) return;
-  modeSel.addEventListener('change', renderMealModeBody);
-  renderMealModeBody();
-}
-function renderMealModeBody(){
-  const mode = document.getElementById('mealMode').value;
-  const body_ = document.getElementById('mealModeBody');
-  if(mode==='saved') body_.innerHTML = savedFoodFormHtml();
-  else if(mode==='savedMeal') body_.innerHTML = savedMealFormHtml();
-  else if(mode==='parse') body_.innerHTML = parseFormHtml();
-  else body_.innerHTML = manualFormHtml();
-  wireModeBodyEvents(mode);
-}
-function savedFoodFormHtml(){
-  if(!foods.foods.length) return `<div class="notice">No saved foods yet. Add one in Settings → Saved foods.</div>`;
-  const opts = foods.foods.map(f=>`<option value="${esc(f.id)}">${esc(f.name)} (${f.basisQty}${esc(f.basisUnit)})</option>`).join('');
-  return `<div class="field"><label>Food</label><select id="sfFood" class="detail-input">${opts}</select></div>
-    <div class="row">
-      <div class="field"><label>Quantity</label><input id="sfQty" class="detail-input" inputmode="decimal" placeholder="e.g. 250"></div>
-      <div class="field"><label>Unit</label><select id="sfUnit" class="detail-input" aria-label="Food unit"></select></div>
-    </div>
-    <div id="sfPreview" class="small" style="margin:8px 0"></div>
-    <button class="primary wide" onclick="submitSavedFood()">Log food</button>`;
-}
-function savedMealFormHtml(){
-  if(!nutrition.savedMeals.length) return `<div class="notice">No saved meals yet. Build one from Log Food entries — coming from repeated logging, or add manually below.</div>
-    <button class="secondary wide" style="margin-top:10px" onclick="showCreateSavedMeal()">Create a saved meal</button>`;
-  const opts = nutrition.savedMeals.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
-  return `<div class="field"><label>Saved meal</label><select id="smMeal" class="detail-input">${opts}</select></div>
-    <button class="primary wide" onclick="submitSavedMeal()">Log meal</button>
-    <button class="secondary wide" style="margin-top:8px" onclick="showCreateSavedMeal()">Create another saved meal</button>`;
-}
-function parseFormHtml(){
-  return `<div class="field"><label>Describe what you ate</label><textarea id="npText" class="detail-input" placeholder="e.g. 250g cooked chicken breast and 1 scoop whey"></textarea></div>
-    <button class="grad-btn wide" id="npBtn" onclick="submitParse()">✨ Parse with AI</button>
-    <div id="npResult" style="margin-top:12px"></div>`;
-}
-function manualFormHtml(){
-  return `<div class="field"><label>Name</label><input id="mnName" class="detail-input" placeholder="Meal name"></div>
-    <div class="row">
-      <div class="field"><label>Calories</label><input id="mnCal" class="detail-input" inputmode="decimal"></div>
-      <div class="field"><label>Protein g</label><input id="mnPro" class="detail-input" inputmode="decimal"></div>
-    </div>
-    <div class="row">
-      <div class="field"><label>Carbs g</label><input id="mnCarb" class="detail-input" inputmode="decimal"></div>
-      <div class="field"><label>Fat g</label><input id="mnFat" class="detail-input" inputmode="decimal"></div>
-    </div>
-    <button class="primary wide" onclick="submitManual()">Log meal</button>`;
-}
-function wireModeBodyEvents(mode){
-  if(mode==='saved'){
-    const qtyEl=document.getElementById('sfQty'), unitEl=document.getElementById('sfUnit'), foodEl=document.getElementById('sfFood');
-    const refresh=()=>{
-      const f=findFood(foodEl.value); const qty=num(qtyEl.value,NaN); const unit=(unitEl.value||f.basisUnit).trim();
-      const m = f && Number.isFinite(qty) ? scaledMacros(f,qty,unit) : null;
-      document.getElementById('sfPreview').textContent = m ? `${m.calories} kcal · ${m.protein}P / ${m.carbs}C / ${m.fat}F` : 'Enter a quantity in a compatible unit to preview macros.';
-    };
-    if(foodEl){
-      const selectFood=()=>{const f=findFood(foodEl.value);const units=isWeightUnit(f.basisUnit)?['g','kg','oz','lb']:isVolumeUnit(f.basisUnit)?['ml','l']:[f.basisUnit];unitEl.innerHTML=units.map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');unitEl.value=f.basisUnit;qtyEl.value=f.basisQty;refresh();};
-      foodEl.addEventListener('change',selectFood);[qtyEl,unitEl].forEach(e=>e.addEventListener('input',refresh));selectFood();
-    }
-  }
-}
-function submitSavedFood(){
-  const foodEl=document.getElementById('sfFood'), qtyEl=document.getElementById('sfQty'), unitEl=document.getElementById('sfUnit');
-  const f = findFood(foodEl.value);
-  const qty = num(qtyEl.value, NaN);
-  const unit = (unitEl.value||f?.basisUnit||'').trim();
-  if(!f || !Number.isFinite(qty) || qty<=0){ toast('Enter a valid quantity'); return; }
-  const m = scaledMacros(f, qty, unit);
-  if(!m){ toast(`Unit "${unit}" is not compatible with ${f.basisUnit} — enter it manually instead`); return; }
-  const now = new Date();
-  logMeal({ date: eatDate, ts: now.getTime(), time: new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(now), name: `${f.name} (${qty}${unit})`, calories:m.calories, protein:m.protein, carbs:m.carbs, fat:m.fat, source:'saved-food', foodId:f.id });
-  toast('Logged'); eatSubview='dashboard'; renderEat();
-}
-function submitSavedMeal(){
-  const sel=document.getElementById('smMeal'); const meal=nutrition.savedMeals.find(x=>x.id===sel.value); if(!meal) return;
-  let totals={calories:0,protein:0,carbs:0,fat:0};
-  meal.items.forEach(it=>{ const f=findFood(it.foodId); if(!f) return; const m=scaledMacros(f,it.qty,it.unit||f.basisUnit); if(m){ totals.calories+=m.calories; totals.protein+=m.protein; totals.carbs+=m.carbs; totals.fat+=m.fat; } });
-  const now = new Date();
-  logMeal({ date:eatDate, ts:now.getTime(), time:new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(now), name:meal.name, calories:Math.round(totals.calories), protein:round1(totals.protein), carbs:round1(totals.carbs), fat:round1(totals.fat), source:'saved-meal', savedMealId:meal.id });
-  toast('Logged'); eatSubview='dashboard'; renderEat();
-}
-function showCreateSavedMeal(){
-  if(!foods.foods.length){ toast('Add saved foods first (Settings → Saved foods)'); return; }
-  const rows = foods.foods.map(f=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0"><input type="checkbox" class="smk-food" value="${esc(f.id)}"><span style="flex:1">${esc(f.name)}</span><input type="number" class="smk-qty detail-input" style="max-width:90px" placeholder="${f.basisQty}" data-food="${esc(f.id)}"></label>`).join('');
-  showModal(`<h3>Create saved meal</h3>
-    <div class="field"><label>Name</label><input id="smkName" class="detail-input" placeholder="e.g. Post-workout shake"></div>
-    <div style="max-height:40vh;overflow:auto">${rows}</div>
-    <button class="primary wide" style="margin-top:12px" onclick="saveSavedMeal()">Save meal</button>`);
-}
-function saveSavedMeal(){
-  const name = document.getElementById('smkName').value.trim();
-  if(!name){ toast('Enter a name'); return; }
-  const items=[];
-  document.querySelectorAll('.smk-food:checked').forEach(cb=>{
-    const f=findFood(cb.value); const qtyEl=[...document.querySelectorAll('.smk-qty')].find(el=>el.dataset.food===cb.value);
-    const qty = num(qtyEl.value, f.basisQty);
-    items.push({foodId:f.id, qty, unit:f.basisUnit});
-  });
-  if(!items.length){ toast('Select at least one food'); return; }
-  nutrition.savedMeals.push({id:uid(), name, items, notes:''});
-  saveNS(NS.nutrition, nutrition);
-  closeModal(); toast('Saved meal created'); renderEat();
-}
-
-async function submitParse(){
-  const text = document.getElementById('npText').value.trim();
-  if(!text){ toast('Describe what you ate first'); return; }
-  const btn = document.getElementById('npBtn');
-  const resultEl = document.getElementById('npResult');
-  if(!navigator.onLine){ resultEl.innerHTML = `<div class="notice">Internet connection required</div>`; return; }
-  btn.disabled = true; btn.textContent = 'Parsing…';
-  resultEl.innerHTML = '';
-  try {
-    const res = await fetch('/api/nutrition-parse', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text}), signal:AbortSignal.timeout(20000) });
-    if(!res.ok){
-      let msg = res.status===422?'Could not understand meal text.':res.status>=500?'Server unavailable. Try again later.':`HTTP error ${res.status}.`;
-      try { const j = await res.json(); if(j && typeof j.error==='string') msg += ' '+j.error; } catch(e){}
-      resultEl.innerHTML = `<div class="notice">${esc(msg)}</div>`;
-      return;
-    }
-    let data;try{data=await res.json();}catch(e){throw new Error('Invalid server response');}
-    if(!data || !Array.isArray(data.items) || data.items.some(it=>!it||typeof it.name!=='string'||!it.name.trim()||typeof it.unit!=='string'||!it.unit.trim()||!Number.isFinite(it.quantity)||it.quantity<=0)){throw new Error('Invalid server response');}
-    if(!data.items.length){
-      resultEl.innerHTML = `<div class="notice">No food items were found in that text.</div>`;
-      return;
-    }
-    pendingParse = { items: data.items.map(it=>({...it, matchedFoodId: matchFoodByName(it.name)})) };
-    if(!milestones.usedAIParse){ milestones.usedAIParse = true; saveNS(NS.milestones, milestones); }
-    renderParseReview();
-  } catch(e){
-    resultEl.innerHTML = `<div class="notice">${esc(!navigator.onLine?'Internet connection required':e.message==='Invalid server response'?e.message:'Server unavailable. Check your connection and try again.')}</div>`;
-  } finally {
-    btn.disabled = false; btn.textContent = '✨ Parse with AI';
-  }
-}
-function matchFoodByName(name){
-  const n = String(name||'').toLowerCase();
-  const hit = foods.foods.find(f=>{
-    const fn = f.name.toLowerCase();
-    return fn.includes(n) || n.includes(fn.split('(')[0].trim());
-  });
-  return hit ? hit.id : null;
-}
-function renderParseReview(){
-  const resultEl = document.getElementById('npResult');
-  if(!pendingParse){ resultEl.innerHTML=''; return; }
-  let html = `<div class="notice info">Review each item — matched items use your saved-food values; unmatched items need confirmation before logging.</div>`;
-  pendingParse.items.forEach((it,i)=>{
-    const f = it.matchedFoodId ? findFood(it.matchedFoodId) : null;
-    const m = f ? scaledMacros(f, it.quantity, it.unit) : null;
-    html += `<div class="card" style="padding:12px;margin:10px 0">
-      <div class="fname">${esc(it.name)} — ${esc(String(it.quantity))} ${esc(it.unit)}</div>`;
-    if(f && m){
-      html += `<div class="fmeta">Matched: ${esc(f.name)} → ${m.calories} kcal · ${m.protein}P / ${m.carbs}C / ${m.fat}F</div>
-        <button class="icon-btn" onclick="acceptParsedItem(${i})">Confirm & log</button>
-        <button class="icon-btn" onclick="manualizeParsedItem(${i})" style="margin-left:6px">Enter manually instead</button>`;
-    } else {
-      html += `<div class="fmeta">Food not found in saved database${f?' (unit incompatible)':''}. Enter nutrition manually to log this item.</div>
-        <div class="row" style="margin-top:8px">
-          <input class="detail-input pi-cal" data-i="${i}" inputmode="decimal" placeholder="kcal">
-          <input class="detail-input pi-pro" data-i="${i}" inputmode="decimal" placeholder="protein g">
-        </div>
-        <div class="row" style="margin-top:8px">
-          <input class="detail-input pi-carb" data-i="${i}" inputmode="decimal" placeholder="carbs g">
-          <input class="detail-input pi-fat" data-i="${i}" inputmode="decimal" placeholder="fat g">
-        </div>
-        <button class="icon-btn" style="margin-top:8px" onclick="acceptManualParsedItem(${i})">Confirm & log</button>`;
-    }
-    html += `</div>`;
-  });
-  resultEl.innerHTML = html;
-}
-function acceptParsedItem(i){
-  const it = pendingParse.items[i]; const f = findFood(it.matchedFoodId); const m = scaledMacros(f, it.quantity, it.unit);
-  if(!m){ toast('Could not compute macros for this item'); return; }
-  const now = new Date();
-  logMeal({date:eatDate, ts:now.getTime(), time:new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(now), name:`${it.name} (${it.quantity}${it.unit})`, calories:m.calories, protein:m.protein, carbs:m.carbs, fat:m.fat, source:'ai-parse-matched', foodId:f.id});
-  toast('Logged'); pendingParse.items.splice(i,1); if(!pendingParse.items.length){ pendingParse=null; eatSubview='dashboard'; renderEat(); } else renderParseReview();
-}
-function manualizeParsedItem(i){ pendingParse.items[i].matchedFoodId = null; renderParseReview(); }
-function acceptManualParsedItem(i){
-  const cal = num(document.querySelector(`.pi-cal[data-i="${i}"]`).value, NaN);
-  const pro = num(document.querySelector(`.pi-pro[data-i="${i}"]`).value, 0);
-  const carb = num(document.querySelector(`.pi-carb[data-i="${i}"]`).value, 0);
-  const fat = num(document.querySelector(`.pi-fat[data-i="${i}"]`).value, 0);
-  if(!Number.isFinite(cal)||cal<0){ toast('Enter a non-negative calorie value'); return; }
-  const it = pendingParse.items[i];
-  if([cal,pro,carb,fat].some(v=>v<0)){toast('Nutrition values must be non-negative');return;}
-  const now = new Date();
-  logMeal({date:eatDate, ts:now.getTime(), time:new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(now), name:`${it.name} (${it.quantity}${it.unit})`, calories:Math.round(cal), protein:round1(pro), carbs:round1(carb), fat:round1(fat), source:'ai-parse-manual'});
-  toast('Logged'); pendingParse.items.splice(i,1); if(!pendingParse.items.length){ pendingParse=null; eatSubview='dashboard'; renderEat(); } else renderParseReview();
-}
-function submitManual(){
-  const name = document.getElementById('mnName').value.trim() || 'Meal';
-  const cal = num(document.getElementById('mnCal').value, NaN);
-  if(!Number.isFinite(cal)||cal<0){ toast('Enter a non-negative calorie value'); return; }
-  const pro = num(document.getElementById('mnPro').value,0), carb = num(document.getElementById('mnCarb').value,0), fat = num(document.getElementById('mnFat').value,0);
-  if([cal,pro,carb,fat].some(v=>v<0)){toast('Nutrition values must be non-negative');return;}
-  const now = new Date();
-  logMeal({date:eatDate, ts:now.getTime(), time:new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(now), name, calories:Math.round(cal), protein:round1(pro), carbs:round1(carb), fat:round1(fat), source:'manual'});
-  toast('Logged'); eatSubview='dashboard'; renderEat();
-}
-
-function eatHistoryHtml(){
-  const dates = Array.from(new Set(nutrition.meals.map(m=>m.date))).sort().reverse();
-  if(!dates.length) return `<div class="card hero"><h2>No meals logged yet</h2><p>Use Log meal to record your first entry.</p></div>`;
-  let html = `<div class="section-title"><h2>Meal history</h2><span>${dates.length} days</span></div>`;
-  dates.forEach(d=>{
-    const meals = mealsForDate(d).slice().sort((a,b)=>a.ts-b.ts);
-    const sums = sumMacros(meals);
-    html += `<div class="card" style="padding:14px;margin:10px 0"><div class="history-top"><h3>${esc(d)}</h3><span class="pill">${Math.round(sums.calories)} kcal</span></div>`;
-    meals.forEach(m=>{
-      html += `<div class="food-row"><div><div class="fname">${esc(m.name)}</div><div class="fmeta">${esc(m.time||'')} · ${Math.round(m.calories)} kcal · ${round1(m.protein)}P/${round1(m.carbs)}C/${round1(m.fat)}F</div>
-        <div class="list-actions">
-          <button class="icon-btn" onclick="editMealPrompt('${m.id}')">Edit</button>
-          <button class="icon-btn" onclick="duplicateMeal('${m.id}');renderEat();">Duplicate</button>
-          <button class="icon-btn" onclick="copyMealToToday('${m.id}');renderEat();">Copy to today</button>
-          <button class="icon-btn" onclick="if(confirm('Delete this meal entry?')){deleteMeal('${m.id}');renderEat();}">Delete</button>
-        </div></div></div>`;
-    });
-    html += `</div>`;
-  });
-  return html;
-}
-function editMealPrompt(id){
-  const m = nutrition.meals.find(x=>x.id===id); if(!m) return;
-  showModal(`<h3>Edit meal</h3>
-    <div class="field"><label>Name</label><input id="emName" class="detail-input" value="${esc(m.name)}"></div>
-    <div class="row"><div class="field"><label>Calories</label><input id="emCal" class="detail-input" inputmode="decimal" value="${m.calories}"></div>
-    <div class="field"><label>Protein g</label><input id="emPro" class="detail-input" inputmode="decimal" value="${m.protein}"></div></div>
-    <div class="row"><div class="field"><label>Carbs g</label><input id="emCarb" class="detail-input" inputmode="decimal" value="${m.carbs}"></div>
-    <div class="field"><label>Fat g</label><input id="emFat" class="detail-input" inputmode="decimal" value="${m.fat}"></div></div>
-    <p>Timestamp preserved: ${fmtDate(m.ts)} ${esc(m.time||'')}</p>
-    <button class="primary wide" onclick="saveMealEdit('${id}')">Save</button>`);
-}
-function saveMealEdit(id){
- const index=nutrition.meals.findIndex(x=>x.id===id);if(index<0)return;
- const previous=nutrition.meals[index],values={};
- for(const [key,field] of [['calories','emCal'],['protein','emPro'],['carbs','emCarb'],['fat','emFat']]){const raw=document.getElementById(field).value;if(raw.trim()===''||!Number.isFinite(Number(raw))||Number(raw)<0){toast('Nutrition values must be non-negative numbers');return;}values[key]=round1(Number(raw));}
- nutrition.meals[index]={...previous,...values,name:document.getElementById('emName').value.trim()||previous.name};saveNS(NS.nutrition,nutrition);closeModal();toast('Meal updated');renderEat();
-}
-
 /* =========================================================================
    PLAN module — pricing + local economic meal solver (no network calls)
    ========================================================================= */
-let planSubview = 'pricing';
+// Plan is rendered by nutrition.js.
 
-function pricePerUnit(f){ return f.priceQty>0 ? f.pricePkr/f.priceQty : 0; }
-function priceDerived(f){
-  // Cost of exactly one basis serving, priced from whatever priceQty/priceUnit
-  // the user entered. Falls back to null (shown as "—") when the price unit
-  // isn't compatible with the basis unit — we never guess a conversion.
-  const perServing = estimateItemCost({food:f, qty:f.basisQty});
-  let per100g = null, per25gProtein = null, per500kcal = null;
-  if(isWeightUnit(f.priceUnit)&&Number.isFinite(perServing)){
-    const pricePerGram = pricePerUnit(f)/toGrams(1,f.priceUnit);
-    per100g = pricePerGram*100;
-  }
-  if(Number.isFinite(perServing)){
-    if(f.protein>0) per25gProtein = perServing/f.protein*25;
-    if(f.calories>0) per500kcal = perServing/f.calories*500;
-  }
-  return { perServing: Number.isFinite(perServing)?perServing:null, per100g, per25gProtein, per500kcal };
-}
 
-function renderPlan(){
-  const el = document.getElementById('planScreen');
-  let html = `<div class="subnav">
-    <button data-psub="pricing" class="${planSubview==='pricing'?'active':''}">Pricing</button>
-    <button data-psub="solver" class="${planSubview==='solver'?'active':''}">Meal solver</button>
-    <button data-psub="pacing" class="${planSubview==='pacing'?'active':''}">Protein pacing</button>
-  </div>`;
-  if(planSubview==='pricing') html += planPricingHtml();
-  else if(planSubview==='solver') html += planSolverHtml();
-  else html += planPacingHtml();
-  el.innerHTML = html;
-  el.querySelectorAll('[data-psub]').forEach(b=>b.addEventListener('click',()=>{ planSubview=b.dataset.psub; renderPlan(); }));
-}
-function planPricingHtml(){
-  if(!foods.foods.length) return `<div class="card hero"><h2>No saved foods</h2><p>Add foods in Settings to price them here.</p></div>`;
-  let html = `<div class="section-title"><h2>Food pricing</h2><span>${foods.foods.length} foods</span></div>`;
-  foods.foods.forEach(f=>{
-    const d = priceDerived(f);
-    html += `<div class="card" style="padding:14px;margin:10px 0">
-      <div class="fname">${esc(f.name)}</div>${d.perServing==null?'<span class="pill">Price missing</span>':''}
-      <div class="row" style="margin-top:8px">
-        <div class="field"><label>Price PKR</label><input class="detail-input pp-price" data-id="${esc(f.id)}" inputmode="decimal" value="${f.pricePkr}"></div>
-        <div class="field"><label>Qty</label><input class="detail-input pp-qty" data-id="${esc(f.id)}" inputmode="decimal" value="${f.priceQty}"></div>
-        <div class="field"><label>Unit</label><input class="detail-input pp-unit" data-id="${esc(f.id)}" value="${esc(f.priceUnit)}"></div>
-      </div>
-      <button class="icon-btn" onclick="savePricing('${esc(f.id)}')">Save price</button>
-      <div class="tag-row">
-        <span class="pill">₨${d.perServing!=null?round1(d.perServing):'—'} / ${f.basisQty}${esc(f.basisUnit)} serving</span>
-        <span class="pill">₨${d.per100g!=null?round1(d.per100g):'—'} / 100g</span>
-        <span class="pill">₨${d.per25gProtein!=null?round1(d.per25gProtein):'—'} / 25g protein</span>
-        <span class="pill">₨${d.per500kcal!=null?round1(d.per500kcal):'—'} / 500 kcal</span>
-      </div>
-    </div>`;
-  });
-  return html;
-}
-function savePricing(id){
-  const current=findFood(id);if(!current)return;const f={...current};
-  const priceValue=document.querySelector(`.pp-price[data-id="${id}"]`).value,qtyValue=document.querySelector(`.pp-qty[data-id="${id}"]`).value;
-  if(!Number.isFinite(Number(priceValue))||Number(priceValue)<0||!Number.isFinite(Number(qtyValue))||Number(qtyValue)<=0){toast('Price must be ≥0 and quantity >0');return;}
-  f.pricePkr = num(document.querySelector(`.pp-price[data-id="${id}"]`).value, f.pricePkr);
-  f.priceQty = num(document.querySelector(`.pp-qty[data-id="${id}"]`).value, f.priceQty);
-  f.priceUnit = document.querySelector(`.pp-unit[data-id="${id}"]`).value.trim() || f.priceUnit;
-  upsertFood(f); toast('Price saved'); renderPlan();
-}
 
-const SOLVER_MODES = ['Cheapest','Highest Protein','Low Effort','Pre Workout','Post Workout','GI Friendly','Fit Remaining Macros'];
-function planSolverHtml(){
-  const remaining = remainingMacrosToday();
-  let html = `<div class="section-title"><h2>Meal solver</h2></div>
-  <div class="card" style="padding:14px">
-    <div class="small">Remaining today: ${round1(remaining.calories)} kcal · ${round1(remaining.protein)}P / ${round1(remaining.carbs)}C / ${round1(remaining.fat)}F</div>
-    <div class="field" style="margin-top:10px"><label>Mode</label>
-      <select id="solverMode" class="detail-input">${SOLVER_MODES.map(m=>`<option>${m}</option>`).join('')}</select>
-    </div>
-    <button class="primary wide" onclick="runSolver()">Generate plan</button>
-  </div>
-  <p class="small">Local search: up to 10 candidate foods, 1–3 foods per plan. Effort uses entered prep steps (default: 1 per food), food count and saved meals. Cheapest excludes missing prices and compares near-best macro fits. GI uses your own tolerance labels.</p><div id="solverResults"></div>`;
-  return html;
-}
-function remainingMacrosToday(){
-  const eaten = sumMacros(mealsForDate(localDateStr()));
-  return {
-    calories: settings.calorieTarget - eaten.calories,
-    protein: settings.proteinTarget - eaten.protein,
-    carbs: settings.carbTarget - eaten.carbs,
-    fat: settings.fatTarget - eaten.fat
-  };
-}
-function runSolver(){
-  const mode = document.getElementById('solverMode').value;
-  const remaining = remainingMacrosToday();
-  const results = solveMeal(mode, remaining);
-  if(!milestones.usedSolver){ milestones.usedSolver = true; saveNS(NS.milestones, milestones); }
-  const el = document.getElementById('solverResults');
-  if(!results.length){ el.innerHTML = `<div class="notice" style="margin-top:12px">No feasible plan found within the current calorie allowance. Check remaining targets, compatible prices (Cheapest), or add more food alternatives.</div>`; return; }
-  el.innerHTML = results.map(r=>`
-    <div class="card plan-result">
-      <h4>${esc(r.label)}</h4>
-      <div class="small">${r.items.map(it=>`${esc(it.food.name)} × ${round1(it.qty)}${esc(it.food.basisUnit)}`).join(', ')}</div>
-      <div class="tag-row">
-        <span class="pill">${Math.round(r.totals.calories)} kcal (Δ${r.diff.calories>=0?'+':''}${round1(r.diff.calories)})</span>
-        <span class="pill">${round1(r.totals.protein)}P (Δ${r.diff.protein>=0?'+':''}${round1(r.diff.protein)})</span>
-        <span class="pill">${round1(r.totals.carbs)}C (Δ${r.diff.carbs>=0?'+':''}${round1(r.diff.carbs)})</span>
-        <span class="pill">${round1(r.totals.fat)}F (Δ${r.diff.fat>=0?'+':''}${round1(r.diff.fat)})</span>
-        <span class="pill">${Number.isFinite(r.cost)?'₨'+round1(r.cost):'Price missing'}</span>
-      </div>
-    </div>`).join('') + `<div class="notice" style="margin-top:8px">This is a planning aid, not medical guidance. It is not a claim of medical safety for IBS, hernia, or any condition.</div>`;
-}
 // Bounded brute-force solver. The saved-food list is small by design (spec:
 // up to ~200 foods), so we pre-filter to a small candidate pool per mode,
 // then enumerate combinations of 1–3 foods across a handful of serving
 // multipliers. No network calls — deterministic, local only.
-function solveMeal(mode, remaining){
-  if(!Number.isFinite(remaining.calories)||remaining.calories<=0)return [];
-  remaining=Object.fromEntries(Object.entries(remaining).map(([k,v])=>[k,Math.max(0,v)]));
-  let pool = foods.foods.filter(f=>f.calories>0 || f.protein>0);
-  if(mode==='GI Friendly'&&pool.some(f=>f.giTolerance!=='bad')) pool=pool.filter(f=>f.giTolerance!=='bad');
-  if(mode==='Cheapest')pool=pool.filter(f=>Number.isFinite(estimateItemCost({food:f,qty:f.basisQty})));
-  if(mode==='GI Friendly')pool=pool.slice().sort((a,b)=>({good:0,unknown:1,mixed:2,bad:3}[a.giTolerance]??1)-({good:0,unknown:1,mixed:2,bad:3}[b.giTolerance]??1));
-  if(mode==='Pre Workout') pool = pool.slice().sort((a,b)=>(b.carbs/Math.max(1,b.calories))-(a.carbs/Math.max(1,a.calories)));
-  else if(mode==='Post Workout') pool = pool.slice().sort((a,b)=>(b.protein+b.carbs*0.5)-(a.protein+a.carbs*0.5));
-  else if(mode==='Highest Protein') pool = pool.slice().sort((a,b)=>b.protein-a.protein);
-  else if(mode==='Cheapest') pool = pool.slice().sort((a,b)=>pricePerUnit(a)-pricePerUnit(b));
-  else if(mode==='Low Effort') pool = pool.slice().sort((a,b)=>(a.prepSteps??1)-(b.prepSteps??1));
-  const candidates = pool.slice(0, 10);
-  const multipliers = [0.5,1,1.5,2,3];
-  const combos = [];
-  const maxItems = mode==='Low Effort' ? 1 : 3;
-  function* combosOfSize(arr,size){
-    if(size===0){ yield []; return; }
-    for(let i=0;i<arr.length;i++){
-      for(const rest of combosOfSize(arr.slice(i+1),size-1)) yield [arr[i],...rest];
-    }
-  }
-  for(let size=1; size<=maxItems; size++){
-    for(const combo of combosOfSize(candidates,size)){
-      const stacks = combo.map(()=>multipliers);
-      const idxMax = stacks.map(s=>s.length);
-      const idx = new Array(combo.length).fill(0);
-      while(true){
-        const items = combo.map((f,i)=>({food:f, qty: f.basisQty*multipliers[idx[i]]}));
-        const totals = items.reduce((acc,it)=>{
-          const m = scaledMacros(it.food, it.qty, it.food.basisUnit);
-          acc.calories+=m.calories; acc.protein+=m.protein; acc.carbs+=m.carbs; acc.fat+=m.fat; return acc;
-        },{calories:0,protein:0,carbs:0,fat:0});
-        const diff = { calories: totals.calories-remaining.calories, protein: totals.protein-remaining.protein, carbs: totals.carbs-remaining.carbs, fat: totals.fat-remaining.fat };
-        const withinCal = Math.abs(diff.calories) <= 100;
-        const withinCarb = diff.carbs <= 5;
-        const withinFat = diff.fat <= 5;
-        if(totals.protein>0 || totals.calories>0){
-          const cost = items.reduce((c,it)=>c+estimateItemCost(it),0);
-          combos.push({ items, totals, diff, withinCal, withinCarb, withinFat, cost });
-        }
-        let carry=true, p=0;
-        while(carry && p<idx.length){ idx[p]++; if(idx[p]>=idxMax[p]){ idx[p]=0; p++; } else carry=false; }
-        if(carry) break;
-      }
-    }
-  }
-  if(mode==='Low Effort')nutrition.savedMeals.forEach(meal=>{
-    const items=meal.items.map(it=>{const f=findFood(it.foodId);const factor=f&&foodScaleFactor(f,it.qty,it.unit||f.basisUnit);return f&&factor!==null?{food:f,qty:factor*f.basisQty}:null;});
-    if(!items.length||items.some(it=>!it))return;
-    const totals=items.reduce((a,it)=>{const m=scaledMacros(it.food,it.qty,it.food.basisUnit);for(const k of ['calories','protein','carbs','fat'])a[k]+=m[k];return a;},{calories:0,protein:0,carbs:0,fat:0});
-    combos.push({items,totals,diff:Object.fromEntries(Object.keys(totals).map(k=>[k,totals[k]-remaining[k]])),cost:items.reduce((c,it)=>c+estimateItemCost(it),0),savedMeal:meal.name});
-  });
-  let pickFrom=combos.filter(c=>c.totals.calories<=remaining.calories+Math.max(100,remaining.calories*.1)&&c.totals.carbs<=remaining.carbs+10&&c.totals.fat<=remaining.fat+5);
-  if(mode==='Highest Protein')pickFrom=combos.filter(c=>c.totals.calories<=remaining.calories&&c.totals.carbs<=remaining.carbs+10&&c.totals.fat<=remaining.fat+5);
-  if(!pickFrom.length){if(mode==='Highest Protein')return [];pickFrom=combos.filter(c=>c.totals.calories<=remaining.calories+100);} 
-  if(mode==='Cheapest'&&pickFrom.length){const bestFit=Math.min(...pickFrom.map(c=>SculptCore.macroError(c.totals,remaining)));pickFrom=pickFrom.filter(c=>SculptCore.macroError(c.totals,remaining)<=bestFit+.6);}
-  pickFrom.sort((a,b)=>SculptCore.scoreMeal(mode,a,remaining)-SculptCore.scoreMeal(mode,b,remaining));
-  return pickFrom.slice(0,3).map((c,i)=>({...c,label:c.savedMeal?c.savedMeal:`${mode} option ${i+1}`}));
-}
+
 // it.qty is always expressed in the food's basisUnit. Returns cost in PKR,
 // or NaN when priceUnit isn't compatible with basisUnit (never guessed).
-function estimateItemCost(it){
-  const f = it.food;
-  if(!(Number.isFinite(f.pricePkr)&&f.pricePkr>0&&Number.isFinite(f.priceQty)&&f.priceQty>0))return NaN;
-  if(f.priceUnit === f.basisUnit) return pricePerUnit(f)*it.qty;
-  if(isWeightUnit(f.priceUnit) && isWeightUnit(f.basisUnit)){
-    const grams = toGrams(it.qty, f.basisUnit);
-    const pricePerGram = pricePerUnit(f)/toGrams(1,f.priceUnit);
-    return pricePerGram*grams;
-  }
-  if(isVolumeUnit(f.priceUnit) && isVolumeUnit(f.basisUnit)){
-    const ml = toMl(it.qty, f.basisUnit);
-    const pricePerMl = pricePerUnit(f)/toMl(1,f.priceUnit);
-    return pricePerMl*ml;
-  }
-  return NaN;
-}
-function planPacingHtml(){
-  let html = `<div class="section-title"><h2>Protein pacing</h2><span>Planning heuristic only</span></div>
-  <div class="notice info">Default is your daily protein target ÷ 4. Adjust windows below.</div>`;
-  settings.proteinWindows.forEach((w,i)=>{
-    html += `<div class="card" style="padding:12px;margin:8px 0">
-      <div class="row">
-        <div class="field"><label>Window label</label><input class="detail-input pw-label" data-i="${i}" value="${esc(w.label)}"></div>
-        <div class="field"><label>Grams</label><input class="detail-input pw-grams" data-i="${i}" inputmode="decimal" value="${w.grams}"></div>
-      </div>
-    </div>`;
-  });
-  html += `<button class="primary wide" onclick="savePacing()">Save windows</button>`;
-  return html;
-}
-function savePacing(){
-  document.querySelectorAll('.pw-label').forEach(el=>{ settings.proteinWindows[el.dataset.i].label = el.value.trim(); });
-  document.querySelectorAll('.pw-grams').forEach(el=>{ settings.proteinWindows[el.dataset.i].grams = num(el.value, settings.proteinWindows[el.dataset.i].grams); });
-  saveNS(NS.settings, settings); toast('Saved'); renderPlan();
-}
 
 /* =========================================================================
    PROGRESS module — body/GI/step tracking
@@ -1216,24 +677,9 @@ let shuffledWorkoutId = null;
 function renderSettings(){
   const el = document.getElementById('settingsScreen');
   el.innerHTML = `
-    <div class="section-title"><h2>Targets</h2></div>
-    <div class="card settings-card">
-      <div class="row"><div class="field"><label>Calories (kcal)</label><input id="stCal" class="detail-input" inputmode="decimal" value="${settings.calorieTarget}"></div>
-      <div class="field"><label>Protein (g)</label><input id="stPro" class="detail-input" inputmode="decimal" value="${settings.proteinTarget}"></div></div>
-      <div class="row"><div class="field"><label>Carbs (g)</label><input id="stCarb" class="detail-input" inputmode="decimal" value="${settings.carbTarget}"></div>
-      <div class="field"><label>Fat (g)</label><input id="stFat" class="detail-input" inputmode="decimal" value="${settings.fatTarget}"></div></div>
-      <div class="row"><div class="field"><label>Steps</label><input id="stSteps" class="detail-input" inputmode="numeric" value="${settings.stepTarget}"></div>
-      <div class="field"><label>Hydration (ml)</label><input id="stHydration" class="detail-input" inputmode="numeric" value="${settings.hydrationTargetMl}"></div></div>
-      <div class="row"><div class="field"><label>Goal weight (kg, optional)</label><input id="stGoalWeight" class="detail-input" inputmode="decimal" value="${settings.goalWeightKg!=null?settings.goalWeightKg:''}"></div>
-      <div class="field"><label>Unit</label><input class="detail-input" value="kg" disabled></div></div>
-      <div class="field"><label>Usual bedtime (optional)</label><input id="stBed" class="detail-input" type="time" value="${esc(settings.bedtime||'')}"></div>
-      <button class="primary wide" onclick="saveSettings()">Save targets</button>
-    </div>
-    <div class="section-title"><h2>Saved foods</h2></div>
-    <div class="card settings-card">
-      <p>${foods.foods.length} foods saved. Deterministic values are used for all macro math — AI parsing never overwrites a saved food.</p>
-      <button class="secondary wide" onclick="showFoodManager()">Manage saved foods</button>
-    </div>
+    ${nutritionSettingsHtml()}
+    <div class="section-title"><h2>Steps & recovery</h2></div>
+    <div class="card settings-card"><div class="row"><label class="field">Step target<input id="stSteps" class="detail-input" type="number" min="0" value="${settings.stepTarget}"></label><label class="field">Hydration target (ml)<input id="stHydration" class="detail-input" type="number" min="0" value="${settings.hydrationTargetMl}"></label></div><label class="field">Goal weight (kg, optional)<input id="stGoalWeight" class="detail-input" type="number" min="1" value="${settings.goalWeightKg??''}"></label><button class="secondary wide" onclick="saveRecoverySettings()">Save steps & recovery</button></div>
     <div class="section-title"><h2>Backup</h2></div>
     <div class="card settings-card">
       <p>Export one unified backup covering training, nutrition, foods, body, settings and mobility. Import validates the schema and keeps a pre-import rollback snapshot. Legacy Sculpt v1 workout-only backups are also supported.</p>
@@ -1250,59 +696,6 @@ function renderSettings(){
     <div class="section-title"><h2>Reset</h2></div>
     <div class="card settings-card"><p>Resets current training, nutrition, foods, progress, settings and mobility on this device. Legacy keys and recovery snapshots are left untouched.</p><button class="danger-btn wide" onclick="clearAllData()">Reset current app data</button></div>
   `;
-}
-function saveSettings(){
-  for(const id of ['stCal','stPro','stCarb','stFat','stSteps','stHydration']){const value=document.getElementById(id).value;if(value.trim()===''||!Number.isFinite(Number(value))||Number(value)<0){toast('Targets must be non-negative numbers');return;}}
-  settings.calorieTarget = num(document.getElementById('stCal').value, settings.calorieTarget);
-  settings.proteinTarget = Math.max(0,num(document.getElementById('stPro').value, settings.proteinTarget));
-  settings.proteinWindows.forEach(w=>w.grams=round1(settings.proteinTarget/4));
-  settings.carbTarget = num(document.getElementById('stCarb').value, settings.carbTarget);
-  settings.fatTarget = num(document.getElementById('stFat').value, settings.fatTarget);
-  settings.stepTarget = num(document.getElementById('stSteps').value, settings.stepTarget);
-  settings.hydrationTargetMl = num(document.getElementById('stHydration').value, settings.hydrationTargetMl);
-  const gw = document.getElementById('stGoalWeight').value.trim();
-  settings.goalWeightKg = gw==='' ? null : num(gw, settings.goalWeightKg);
-  settings.bedtime = document.getElementById('stBed').value;
-  saveNS(NS.settings, settings);
-  toast('Targets saved'); renderToday();if(planSubview==='pacing')renderPlan();
-}
-function showFoodManager(){
-  let rows = foods.foods.map(f=>`<div class="food-row"><div><div class="fname">${esc(f.name)}</div><div class="fmeta">${f.basisQty}${esc(f.basisUnit)} · ${f.calories}kcal · ${f.protein}P/${f.carbs}C/${f.fat}F · GI:${esc(f.giTolerance)}</div></div>
-    <div class="list-actions"><button class="icon-btn" onclick="editFoodPrompt('${esc(f.id)}')">Edit</button><button class="icon-btn" onclick="if(confirm('Delete this saved food?')){deleteFood('${esc(f.id)}');showFoodManager();}">Delete</button></div></div>`).join('');
-  showModal(`<h3>Saved foods</h3><button class="primary wide" onclick="editFoodPrompt(null)">Add new food</button><div style="margin-top:10px">${rows||'<div class="small">No foods yet.</div>'}</div><button class="secondary wide" style="margin-top:12px" onclick="closeModal();renderSettings();">Close</button>`);
-}
-function editFoodPrompt(id){
-  const f = id ? findFood(id) : {id:uid(), name:'', basisQty:100, basisUnit:'g', calories:0, protein:0, carbs:0, fat:0, source:'manual', pricePkr:0, priceQty:100, priceUnit:'g', giTolerance:'unknown', notes:''};
-  showModal(`<h3>${id?'Edit':'Add'} saved food</h3>
-    <div class="field"><label>Name</label><input id="fName" class="detail-input" value="${esc(f.name)}"></div>
-    <div class="row"><div class="field"><label>Basis qty</label><input id="fBQty" class="detail-input" inputmode="decimal" value="${f.basisQty}"></div>
-    <div class="field"><label>Basis unit</label><input id="fBUnit" class="detail-input" value="${esc(f.basisUnit)}"></div></div>
-    <div class="row"><div class="field"><label>Calories</label><input id="fCal" class="detail-input" inputmode="decimal" value="${f.calories}"></div>
-    <div class="field"><label>Protein g</label><input id="fPro" class="detail-input" inputmode="decimal" value="${f.protein}"></div></div>
-    <div class="row"><div class="field"><label>Carbs g</label><input id="fCarb" class="detail-input" inputmode="decimal" value="${f.carbs}"></div>
-    <div class="field"><label>Fat g</label><input id="fFat" class="detail-input" inputmode="decimal" value="${f.fat}"></div></div>
-    <div class="field"><label>GI tolerance</label><select id="fGI" class="detail-input">
-      ${['unknown','good','mixed','bad'].map(g=>`<option value="${g}" ${f.giTolerance===g?'selected':''}>${g}</option>`).join('')}
-    </select></div>
-    <div class="field"><label for="fEffort">Preparation steps (simple effort estimate)</label><input id="fEffort" class="detail-input" type="number" min="0" max="20" value="${f.prepSteps??1}"></div>
-    <div class="field"><label>Notes</label><textarea id="fNotes" class="detail-input">${esc(f.notes||'')}</textarea></div>
-    <button class="primary wide" onclick="saveFoodPrompt('${id?esc(id):''}')">Save food</button>`);
-}
-function saveFoodPrompt(existingId){
-  const f = existingId ? {...findFood(existingId)} : {id:uid(), source:'manual', pricePkr:0, priceQty:100, priceUnit:'g'};
-  f.name = document.getElementById('fName').value.trim() || 'Untitled food';
-  f.basisQty = num(document.getElementById('fBQty').value, 100);
-  f.basisUnit = document.getElementById('fBUnit').value.trim() || 'g';
-  f.calories = num(document.getElementById('fCal').value, 0);
-  f.protein = num(document.getElementById('fPro').value, 0);
-  f.carbs = num(document.getElementById('fCarb').value, 0);
-  f.fat = num(document.getElementById('fFat').value, 0);
-  f.giTolerance = document.getElementById('fGI').value;
-  f.notes = document.getElementById('fNotes').value;
-  f.prepSteps=Math.max(0,Math.min(20,Number(document.getElementById('fEffort').value)||0));
-  if(!(f.basisQty>0)||[f.calories,f.protein,f.carbs,f.fat].some(v=>v<0)){toast('Use a positive basis quantity and non-negative macros');return;}
-  if(!existingId){ f.pricePkr = 0; f.priceQty = f.basisQty; f.priceUnit = f.basisUnit; }
-  upsertFood(f); toast('Food saved'); showFoodManager();
 }
 
 /* =========================================================================

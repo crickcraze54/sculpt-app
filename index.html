@@ -16,6 +16,7 @@
     try{const pref=JSON.parse(localStorage.getItem('sculpt.v2.settings')||'{}').theme||'system';const theme=pref==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):pref;document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content=theme==='dark'?'black-translucent':'default';}catch(e){document.documentElement.dataset.theme='light';}
   </script>
   <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="nutrition.css">
 </head>
 <body>
   <div class="app">
@@ -58,11 +59,13 @@
 
   <div class="modal-backdrop" id="modalBackdrop"><div class="modal" id="modal"></div></div>
 
+<script src="nutrition-core.js"></script>
 <script src="core.js"></script>
 <script src="program-data.js"></script>
 <script src="app.js"></script>
 <script src="storage.js"></script>
 <script src="upgrade.js"></script>
+<script src="nutrition.js"></script>
 <script>
 document.getElementById('todayBadge').textContent = todayLong();
 renderToday();
