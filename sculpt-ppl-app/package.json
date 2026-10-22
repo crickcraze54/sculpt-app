@@ -1,0 +1,13 @@
+{
+  "name": "sculpt-ppl-app",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Static local-first Sculpt PWA. No build step required.",
+  "scripts": {
+    "test": "node tests/run.cjs",
+    "program:build": "python3 scripts/build-program.py"
+  },
+  "devDependencies": {
+    "jsdom": "30.1.3"
+  }
+}
