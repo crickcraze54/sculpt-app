@@ -1,14 +1,22 @@
 {
   "name": "Sculpt",
   "short_name": "Sculpt",
-  "description": "Local-first training, nutrition, economic meal planning and progress tracker.",
+  "description": "Local-first six-day hypertrophy, nutrition, mobility and progress tracker.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0b0d10",
-  "theme_color": "#0b0d10",
+  "background_color": "#f4f5f1",
+  "theme_color": "#286347",
   "icons": [
-    {"src":"icon-192.png","sizes":"192x192","type":"image/png"},
-    {"src":"icon-512.png","sizes":"512x512","type":"image/png"}
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }

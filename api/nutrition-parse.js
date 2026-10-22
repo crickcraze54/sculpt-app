@@ -104,9 +104,8 @@ module.exports = async function handler(req, res) {
   }
 
   if (!upstreamResponse.ok) {
-    let upstreamText = '';
-    try { upstreamText = await upstreamResponse.text(); } catch (e) {}
-    console.error('nutrition-parse: upstream error', upstreamResponse.status, upstreamText.slice(0, 500));
+    // Never log upstream bodies: they may include the user's meal text.
+    console.error('nutrition-parse: upstream status', upstreamResponse.status);
     return res.status(502).json({ error: 'The nutrition parser service returned an error.' });
   }
 
